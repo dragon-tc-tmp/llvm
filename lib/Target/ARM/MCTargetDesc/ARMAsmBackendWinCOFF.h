@@ -17,8 +17,8 @@ using namespace llvm;
 namespace {
 class ARMAsmBackendWinCOFF : public ARMAsmBackend {
 public:
-  ARMAsmBackendWinCOFF(const Target &T, const MCSubtargetInfo &STI)
-      : ARMAsmBackend(T, STI, support::little) {}
+  ARMAsmBackendWinCOFF(const Target &T, const Triple &TheTriple)
+      : ARMAsmBackend(T, TheTriple, support::little) {}
   std::unique_ptr<MCObjectTargetWriter>
   createObjectTargetWriter() const override {
     return createARMWinCOFFObjectWriter(/*Is64Bit=*/false);

@@ -19,19 +19,19 @@
 namespace llvm {
 
 class ARMAsmBackend : public MCAsmBackend {
-  const MCSubtargetInfo &STI;
+  const MCSubtargetInfo *STI;
   bool isThumbMode;    // Currently emitting Thumb code.
 public:
-  ARMAsmBackend(const Target &T, const MCSubtargetInfo &STI,
-                support::endianness Endian)
-      : MCAsmBackend(Endian), STI(STI),
-        isThumbMode(STI.getTargetTriple().isThumb()) {}
+  ARMAsmBackend(const Target &T, const Triple &TT, support::endianness Endian)
+      : MCAsmBackend(Endian), STI(ARM_MC::createARMMCSubtargetInfo(TT, "", "")),
+        isThumbMode(TT.getArchName().startswith("thumb")) {}
+  ~ARMAsmBackend() override { delete STI; }
 
   unsigned getNumFixupKinds() const override {
     return ARM::NumTargetFixupKinds;
   }
 
-  bool hasNOP() const { return STI.getFeatureBits()[ARM::HasV6T2Ops]; }
+  bool hasNOP() const { return STI->getFeatureBits()[ARM::HasV6T2Ops]; }
 
   const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const override;
 
