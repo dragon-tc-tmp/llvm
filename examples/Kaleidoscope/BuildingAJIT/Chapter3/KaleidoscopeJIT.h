@@ -32,6 +32,7 @@
 #include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/GVN.h"
 #include <algorithm>
@@ -97,6 +98,7 @@ public:
 
     // Build a resolver and associate it with the new key.
     Resolvers[K] = createLegacyLookupResolver(
+        ES,
         [this](const std::string &Name) -> JITSymbol {
           if (auto Sym = CompileLayer.findSymbol(Name, false))
             return Sym;
