@@ -110,12 +110,6 @@ static cl::opt<bool> EnableAMDGPUAliasAnalysis("enable-amdgpu-aa", cl::Hidden,
   cl::desc("Enable AMDGPU Alias Analysis"),
   cl::init(true));
 
-// Option to enable new waitcnt insertion pass.
-static cl::opt<bool> EnableSIInsertWaitcntsPass(
-  "enable-si-insert-waitcnts",
-  cl::desc("Use new waitcnt insertion pass"),
-  cl::init(true));
-
 // Option to run late CFG structurizer
 static cl::opt<bool, true> LateCFGStructurize(
   "amdgpu-late-structurize",
@@ -132,7 +126,7 @@ static cl::opt<bool> EnableAMDGPUFunctionCalls(
 // Enable lib calls simplifications
 static cl::opt<bool> EnableLibCallSimplify(
   "amdgpu-simplify-libcall",
-  cl::desc("Enable mdgpu library simplifications"),
+  cl::desc("Enable amdgpu library simplifications"),
   cl::init(true),
   cl::Hidden);
 
@@ -445,6 +439,11 @@ const R600Subtarget *R600TargetMachine::getSubtargetImpl(
   return I.get();
 }
 
+TargetTransformInfo
+R600TargetMachine::getTargetTransformInfo(const Function &F) {
+  return TargetTransformInfo(R600TTIImpl(this, F));
+}
+
 //===----------------------------------------------------------------------===//
 // GCN Target Machine (SI+)
 //===----------------------------------------------------------------------===//
@@ -476,6 +475,11 @@ const SISubtarget *GCNTargetMachine::getSubtargetImpl(const Function &F) const {
   I->setScalarizeGlobalBehavior(ScalarizeGlobal);
 
   return I.get();
+}
+
+TargetTransformInfo
+GCNTargetMachine::getTargetTransformInfo(const Function &F) {
+  return TargetTransformInfo(GCNTTIImpl(this, F));
 }
 
 //===----------------------------------------------------------------------===//
@@ -566,11 +570,6 @@ public:
 };
 
 } // end anonymous namespace
-
-TargetTransformInfo
-AMDGPUTargetMachine::getTargetTransformInfo(const Function &F) {
-  return TargetTransformInfo(AMDGPUTTIImpl(this, F));
-}
 
 void AMDGPUPassConfig::addEarlyCSEOrGVNPass() {
   if (getOptLevel() == CodeGenOpt::Aggressive)
