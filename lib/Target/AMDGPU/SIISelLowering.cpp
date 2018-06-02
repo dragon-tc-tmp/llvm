@@ -234,9 +234,6 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SUBCARRY, MVT::i64, Legal);
 #endif
 
-  //setOperationAction(ISD::ADDC, MVT::i64, Expand);
-  //setOperationAction(ISD::SUBC, MVT::i64, Expand);
-
   // We only support LOAD/STORE and vector manipulation ops for vectors
   // with > 4 elements.
   for (MVT VT : {MVT::v8i32, MVT::v8f32, MVT::v16i32, MVT::v16f32,
@@ -7728,6 +7725,8 @@ void SITargetLowering::finalizeLowering(MachineFunction &MF) const {
   MRI.replaceRegWith(AMDGPU::FP_REG, Info->getFrameOffsetReg());
   MRI.replaceRegWith(AMDGPU::SCRATCH_WAVE_OFFSET_REG,
                      Info->getScratchWaveOffsetReg());
+
+  Info->limitOccupancy(MF);
 
   TargetLoweringBase::finalizeLowering(MF);
 }
