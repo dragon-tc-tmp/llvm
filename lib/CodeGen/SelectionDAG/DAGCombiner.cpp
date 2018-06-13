@@ -5357,7 +5357,7 @@ SDValue DAGCombiner::MatchLoadCombine(SDNode *N) {
   Optional<BaseIndexOffset> Base;
   SDValue Chain;
 
-  SmallSet<LoadSDNode *, 8> Loads;
+  SmallPtrSet<LoadSDNode *, 8> Loads;
   Optional<ByteProvider> FirstByteProvider;
   int64_t FirstOffset = INT64_MAX;
 
@@ -7330,6 +7330,36 @@ SDValue DAGCombiner::visitVSELECT(SDNode *N) {
       AddToWorklist(Shift.getNode());
       AddToWorklist(Add.getNode());
       return DAG.getNode(ISD::XOR, DL, VT, Add, Shift);
+    }
+
+    // If this select has a condition (setcc) with narrower operands than the
+    // select, try to widen the compare to match the select width.
+    // TODO: This should be extended to handle any constant.
+    // TODO: This could be extended to handle non-loading patterns, but that
+    //       requires thorough testing to avoid regressions.
+    if (isNullConstantOrNullSplatConstant(RHS)) {
+      EVT NarrowVT = LHS.getValueType();
+      EVT WideVT = N1.getValueType().changeVectorElementTypeToInteger();
+      EVT SetCCVT = getSetCCResultType(LHS.getValueType());
+      unsigned SetCCWidth = SetCCVT.getScalarSizeInBits();
+      unsigned WideWidth = WideVT.getScalarSizeInBits();
+      bool IsSigned = isSignedIntSetCC(CC);
+      auto LoadExtOpcode = IsSigned ? ISD::SEXTLOAD : ISD::ZEXTLOAD;
+      if (LHS.getOpcode() == ISD::LOAD && LHS.hasOneUse() &&
+          SetCCWidth != 1 && SetCCWidth < WideWidth &&
+          TLI.isLoadExtLegalOrCustom(LoadExtOpcode, WideVT, NarrowVT) &&
+          TLI.isOperationLegalOrCustom(ISD::SETCC, WideVT)) {
+        // Both compare operands can be widened for free. The LHS can use an
+        // extended load, and the RHS is a constant:
+        //   vselect (ext (setcc load(X), C)), N1, N2 -->
+        //   vselect (setcc extload(X), C'), N1, N2
+        auto ExtOpcode = IsSigned ? ISD::SIGN_EXTEND : ISD::ZERO_EXTEND;
+        SDValue WideLHS = DAG.getNode(ExtOpcode, DL, WideVT, LHS);
+        SDValue WideRHS = DAG.getNode(ExtOpcode, DL, WideVT, RHS);
+        EVT WideSetCCVT = getSetCCResultType(WideVT);
+        SDValue WideSetCC = DAG.getSetCC(DL, WideSetCCVT, WideLHS, WideRHS, CC);
+        return DAG.getSelect(DL, N1.getValueType(), WideSetCC, N1, N2);
+      }
     }
   }
 
@@ -15938,13 +15968,22 @@ SDValue DAGCombiner::visitEXTRACT_SUBVECTOR(SDNode* N) {
       // Only do this if we won't split any elements.
       if (ExtractSize % EltSize == 0) {
         unsigned NumElems = ExtractSize / EltSize;
-        EVT ExtractVT = EVT::getVectorVT(*DAG.getContext(),
-                                         InVT.getVectorElementType(), NumElems);
+        EVT EltVT = InVT.getVectorElementType();
+        EVT ExtractVT = NumElems == 1 ? EltVT :
+          EVT::getVectorVT(*DAG.getContext(), EltVT, NumElems);
         if ((Level < AfterLegalizeDAG ||
-             TLI.isOperationLegal(ISD::BUILD_VECTOR, ExtractVT)) &&
+             (NumElems == 1 ||
+              TLI.isOperationLegal(ISD::BUILD_VECTOR, ExtractVT))) &&
             (!LegalTypes || TLI.isTypeLegal(ExtractVT))) {
           unsigned IdxVal = (Idx->getZExtValue() * NVT.getScalarSizeInBits()) /
                             EltSize;
+          if (NumElems == 1) {
+            SDValue Src = V->getOperand(IdxVal);
+            if (EltVT != Src.getValueType())
+              Src = DAG.getNode(ISD::TRUNCATE, SDLoc(N), InVT, Src);
+
+            return DAG.getBitcast(NVT, Src);
+          }
 
           // Extract the pieces from the original build_vector.
           SDValue BuildVec = DAG.getBuildVector(ExtractVT, SDLoc(N),
