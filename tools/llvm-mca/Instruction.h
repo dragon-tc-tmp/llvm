@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 /// \file
 ///
-/// This file defines abstractions used by the Backend to model register reads,
+/// This file defines abstractions used by the Pipeline to model register reads,
 /// register writes and instructions.
 ///
 //===----------------------------------------------------------------------===//
@@ -17,7 +17,11 @@
 #define LLVM_TOOLS_LLVM_MCA_INSTRUCTION_H
 
 #include "llvm/Support/MathExtras.h"
+
+#ifndef NDEBUG
 #include "llvm/Support/raw_ostream.h"
+#endif
+
 #include <memory>
 #include <set>
 #include <vector>
@@ -158,17 +162,16 @@ class ReadState {
   // dependent writes (i.e. field DependentWrite) is zero, this value is
   // propagated to field CyclesLeft.
   unsigned TotalCycles;
+  // This field is set to true only if there are no dependent writes, and
+  // there are no `CyclesLeft' to wait.
+  bool IsReady;
 
 public:
-  bool isReady() const {
-    if (DependentWrites)
-      return false;
-    return (CyclesLeft == UNKNOWN_CYCLES || CyclesLeft == 0);
-  }
+  bool isReady() const { return IsReady; }
 
   ReadState(const ReadDescriptor &Desc, unsigned RegID)
       : RD(Desc), RegisterID(RegID), DependentWrites(0),
-        CyclesLeft(UNKNOWN_CYCLES), TotalCycles(0) {}
+        CyclesLeft(UNKNOWN_CYCLES), TotalCycles(0), IsReady(true) {}
   ReadState(const ReadState &Other) = delete;
   ReadState &operator=(const ReadState &Other) = delete;
 
@@ -178,7 +181,10 @@ public:
 
   void cycleEvent();
   void writeStartEvent(unsigned Cycles);
-  void setDependentWrites(unsigned Writes) { DependentWrites = Writes; }
+  void setDependentWrites(unsigned Writes) {
+    DependentWrites = Writes;
+    IsReady = !Writes;
+  }
 };
 
 /// A sequence of cycles.
@@ -264,10 +270,10 @@ struct InstrDesc {
   bool isZeroLatency() const { return !MaxLatency && Resources.empty(); }
 };
 
-/// An instruction dispatched to the out-of-order backend.
+/// An instruction propagated through the simulated instruction pipeline.
 ///
-/// This class is used to monitor changes in the internal state of instructions
-/// that are dispatched by the DispatchUnit to the hardware schedulers.
+/// This class is used to monitor changes to the internal state of instructions
+/// that are sent to the various components of the simulated hardware pipeline.
 class Instruction {
   const InstrDesc &Desc;
 
@@ -374,6 +380,36 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const InstRef &IR) {
   return OS;
 }
 #endif
+
+/// A reference to a register write.
+///
+/// This class is mainly used by the register file to describe register
+/// mappings. It correlates a register write to the source index of the
+/// defining instruction.
+class WriteRef {
+  std::pair<unsigned, WriteState *> Data;
+  static const unsigned INVALID_IID;
+
+public:
+  WriteRef() : Data(INVALID_IID, nullptr) {}
+  WriteRef(unsigned SourceIndex, WriteState *WS) : Data(SourceIndex, WS) {}
+
+  unsigned getSourceIndex() const { return Data.first; }
+  const WriteState *getWriteState() const { return Data.second; }
+  WriteState *getWriteState() { return Data.second; }
+  void invalidate() { Data = std::make_pair(INVALID_IID, nullptr); }
+
+  bool isValid() const {
+    return Data.first != INVALID_IID && Data.second != nullptr;
+  }
+  bool operator==(const WriteRef &Other) const {
+    return Data == Other.Data;
+  }
+
+#ifndef NDEBUG
+  void dump() const;
+#endif
+};
 
 } // namespace mca
 
