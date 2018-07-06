@@ -2247,22 +2247,35 @@ StrengthenNoWrapFlags(ScalarEvolution *SE, SCEVTypes Type,
 
   SignOrUnsignWrap = ScalarEvolution::maskFlags(Flags, SignOrUnsignMask);
 
-  if (SignOrUnsignWrap != SignOrUnsignMask && Type == scAddExpr &&
-      Ops.size() == 2 && isa<SCEVConstant>(Ops[0])) {
+  if (SignOrUnsignWrap != SignOrUnsignMask &&
+      (Type == scAddExpr || Type == scMulExpr) && Ops.size() == 2 &&
+      isa<SCEVConstant>(Ops[0])) {
 
-    // (A + C) --> (A + C)<nsw> if the addition does not sign overflow
-    // (A + C) --> (A + C)<nuw> if the addition does not unsign overflow
+    auto Opcode = [&] {
+      switch (Type) {
+      case scAddExpr:
+        return Instruction::Add;
+      case scMulExpr:
+        return Instruction::Mul;
+      default:
+        llvm_unreachable("Unexpected SCEV op.");
+      }
+    }();
 
     const APInt &C = cast<SCEVConstant>(Ops[0])->getAPInt();
+
+    // (A <opcode> C) --> (A <opcode> C)<nsw> if the op doesn't sign overflow.
     if (!(SignOrUnsignWrap & SCEV::FlagNSW)) {
       auto NSWRegion = ConstantRange::makeGuaranteedNoWrapRegion(
-          Instruction::Add, C, OBO::NoSignedWrap);
+          Opcode, C, OBO::NoSignedWrap);
       if (NSWRegion.contains(SE->getSignedRange(Ops[1])))
         Flags = ScalarEvolution::setFlags(Flags, SCEV::FlagNSW);
     }
+
+    // (A <opcode> C) --> (A <opcode> C)<nuw> if the op doesn't unsign overflow.
     if (!(SignOrUnsignWrap & SCEV::FlagNUW)) {
       auto NUWRegion = ConstantRange::makeGuaranteedNoWrapRegion(
-          Instruction::Add, C, OBO::NoUnsignedWrap);
+          Opcode, C, OBO::NoUnsignedWrap);
       if (NUWRegion.contains(SE->getUnsignedRange(Ops[1])))
         Flags = ScalarEvolution::setFlags(Flags, SCEV::FlagNUW);
     }
@@ -9712,8 +9725,9 @@ bool ScalarEvolution::isImpliedViaMerge(ICmpInst::Predicate Pred,
     // AddRec. It means that there is a loop which has both AddRec and Unknown
     // PHIs, for it we can compare incoming values of AddRec from above the loop
     // and latch with their respective incoming values of LPhi.
-    assert(LPhi->getNumIncomingValues() == 2 &&
-           "Phi node standing in loop header does not have exactly 2 inputs?");
+    // TODO: Generalize to handle loops with many inputs in a header.
+    if (LPhi->getNumIncomingValues() != 2) return false;
+
     auto *RLoop = RAR->getLoop();
     auto *Predecessor = RLoop->getLoopPredecessor();
     assert(Predecessor && "Loop with AddRec with no predecessor?");

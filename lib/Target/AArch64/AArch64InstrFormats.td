@@ -179,9 +179,21 @@ def CondCode : AsmOperandClass {
 // A 32-bit register pasrsed as 64-bit
 def GPR32as64Operand : AsmOperandClass {
   let Name = "GPR32as64";
+  let ParserMethod =
+      "tryParseGPROperand<false, RegConstraintEqualityTy::EqualsSubReg>";
 }
 def GPR32as64 : RegisterOperand<GPR32> {
   let ParserMatchClass = GPR32as64Operand;
+}
+
+// A 64-bit register pasrsed as 32-bit
+def GPR64as32Operand : AsmOperandClass {
+  let Name = "GPR64as32";
+  let ParserMethod =
+      "tryParseGPROperand<false, RegConstraintEqualityTy::EqualsSuperReg>";
+}
+def GPR64as32 : RegisterOperand<GPR64, "printGPR64as32"> {
+  let ParserMatchClass = GPR64as32Operand;
 }
 
 // 8-bit immediate for AdvSIMD where 64-bit values of the form:
@@ -248,6 +260,12 @@ def SImm9Operand : SImmOperand<9>;
 def simm9 : Operand<i64>, ImmLeaf<i64, [{ return Imm >= -256 && Imm < 256; }]> {
   let ParserMatchClass = SImm9Operand;
   let DecoderMethod = "DecodeSImm<9>";
+}
+
+def SImm8Operand : SImmOperand<8>;
+def simm8 : Operand<i64>, ImmLeaf<i64, [{ return Imm >= -128 && Imm < 127; }]> {
+  let ParserMatchClass = SImm8Operand;
+  let DecoderMethod = "DecodeSImm<8>";
 }
 
 def SImm6Operand : SImmOperand<6>;
