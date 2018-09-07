@@ -131,6 +131,9 @@ Non-comprehensive list of changes in this release
 
 * CodeView debug info can now be emitted MinGW configurations, if requested.
 
+* The :program:`opt` tool now supports the :option:`-load-pass-plugin` for
+  loading pass plugins for the new PassManager.
+
 * Note..
 
 .. NOTE
@@ -163,6 +166,9 @@ Changes to the AArch64 Target
 * Support for most remaining COFF relocations have been added.
 
 * Support for TLS on Windows has been added.
+
+* Assembler and disassembler support for the ARM Scalable Vector Extension has
+  been added.
 
 Changes to the ARM Target
 -------------------------
@@ -230,7 +236,31 @@ During this release the MIPS target has:
 Changes to the PowerPC Target
 -----------------------------
 
- During this release ...
+During this release the PowerPC target has:
+
+* Replaced the list scheduler for post register allocation with the machine scheduler.
+
+* Added support for coldcc calling convention.
+
+* Added support for ``symbol@high`` and ``symbol@higha`` symbol modifiers.
+
+* Added support for quad-precision floating point type (``__float128``) under the llvm option `-enable-ppc-quad-precision`.
+
+* Added dump function to ``LatencyPriorityQueue``.
+
+* Completed the Power9 scheduler model.
+
+* Optimized TLS code generation.
+
+* Improved MachineLICM for hoisting constant stores.
+
+* Improved code generation to reduce register use by using more register + immediate instructions.
+
+* Improved code generation to better exploit rotate-and-mask instructions.
+
+* Fixed the bug in dynamic loader for JIT which crashed NNVM.
+
+* Numerous bug fixes and code cleanups.
 
 Changes to the SystemZ Target
 -----------------------------
