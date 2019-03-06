@@ -1071,10 +1071,11 @@ Currently, only the following parameter attributes are defined:
 
 ``align <n>``
     This indicates that the pointer value may be assumed by the optimizer to
-    have the specified alignment.
+    have the specified alignment.  If the pointer value does not have the
+    specified alignment, behavior is undefined.
 
     Note that this attribute has additional semantics when combined with the
-    ``byval`` attribute.
+    ``byval`` attribute, which are documented there.
 
 .. _noalias:
 
@@ -3293,14 +3294,14 @@ basic block in the specified function, and always has an ``i8*`` type.
 Taking the address of the entry block is illegal.
 
 This value only has defined behavior when used as an operand to the
-':ref:`indirectbr <i_indirectbr>`' instruction, or for comparisons
-against null. Pointer equality tests between labels addresses results in
-undefined behavior --- though, again, comparison against null is ok, and
-no label is equal to the null pointer. This may be passed around as an
+':ref:`indirectbr <i_indirectbr>`' or ':ref:`callbr <i_callbr>`'instruction, or
+for comparisons against null. Pointer equality tests between labels addresses
+results in undefined behavior --- though, again, comparison against null is ok,
+and no label is equal to the null pointer. This may be passed around as an
 opaque pointer sized value as long as the bits are not inspected. This
 allows ``ptrtoint`` and arithmetic to be performed on these values so
-long as the original value is reconstituted before the ``indirectbr``
-instruction.
+long as the original value is reconstituted before the ``indirectbr`` or
+``callbr`` instruction.
 
 Finally, some targets may provide defined semantics when using the value
 as the operand to an inline assembly, but that is target specific.
@@ -11325,8 +11326,11 @@ Semantics:
 The '``llvm.memcpy.*``' intrinsics copy a block of memory from the
 source location to the destination location, which are not allowed to
 overlap. It copies "len" bytes of memory over. If the argument is known
-to be aligned to some boundary, this can be specified as the fourth
-argument, otherwise it should be set to 0 or 1 (both meaning no alignment).
+to be aligned to some boundary, this can be specified as an attribute on
+the argument.
+
+If "len" is 0, the pointers may be NULL or dangling. However, they must still
+be appropriately aligned.
 
 .. _int_memmove:
 
@@ -11380,8 +11384,11 @@ Semantics:
 The '``llvm.memmove.*``' intrinsics copy a block of memory from the
 source location to the destination location, which may overlap. It
 copies "len" bytes of memory over. If the argument is known to be
-aligned to some boundary, this can be specified as the fourth argument,
-otherwise it should be set to 0 or 1 (both meaning no alignment).
+aligned to some boundary, this can be specified as an attribute on
+the argument.
+
+If "len" is 0, the pointers may be NULL or dangling. However, they must still
+be appropriately aligned.
 
 .. _int_memset:
 
@@ -11431,7 +11438,12 @@ Semantics:
 """"""""""
 
 The '``llvm.memset.*``' intrinsics fill "len" bytes of memory starting
-at the destination location.
+at the destination location. If the argument is known to be
+aligned to some boundary, this can be specified as an attribute on
+the argument.
+
+If "len" is 0, the pointers may be NULL or dangling. However, they must still
+be appropriately aligned.
 
 '``llvm.sqrt.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
