@@ -107,7 +107,7 @@ protected:
   Buffer &Out;
 
 public:
-  virtual ~SectionWriter(){};
+  virtual ~SectionWriter() = default;
 
   void visit(const Section &Sec) override;
   void visit(const OwnedDataSection &Sec) override;
@@ -215,6 +215,7 @@ private:
   void writePhdrs();
   void writeShdrs();
   void writeSectionData();
+  void writeSegmentData();
 
   void assignOffsets();
 
@@ -280,6 +281,8 @@ public:
   virtual void accept(SectionVisitor &Visitor) const = 0;
   virtual void accept(MutableSectionVisitor &Visitor) = 0;
   virtual void markSymbols();
+  virtual void
+  replaceSectionReferences(const DenseMap<SectionBase *, SectionBase *> &);
 };
 
 class Segment {
@@ -323,6 +326,8 @@ public:
 
   void removeSection(const SectionBase *Sec) { Sections.erase(Sec); }
   void addSection(const SectionBase *Sec) { Sections.insert(Sec); }
+
+  ArrayRef<uint8_t> getContents() const { return Contents; }
 };
 
 class Section : public SectionBase {
@@ -423,7 +428,7 @@ public:
 
   void addString(StringRef Name);
   uint32_t findIndex(StringRef Name) const;
-  void finalize() override;
+  void prepareForLayout();
   void accept(SectionVisitor &Visitor) const override;
   void accept(MutableSectionVisitor &Visitor) override;
 
@@ -531,6 +536,8 @@ public:
   void accept(SectionVisitor &Visitor) const override;
   void accept(MutableSectionVisitor &Visitor) override;
   Error removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
+  void replaceSectionReferences(
+      const DenseMap<SectionBase *, SectionBase *> &FromTo) override;
 
   static bool classof(const SectionBase *S) {
     return S->Type == ELF::SHT_SYMTAB;
@@ -596,6 +603,8 @@ public:
       function_ref<bool(const SectionBase *)> ToRemove) override;
   Error removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
   void markSymbols() override;
+  void replaceSectionReferences(
+      const DenseMap<SectionBase *, SectionBase *> &FromTo) override;
 
   static bool classof(const SectionBase *S) {
     if (S->Flags & ELF::SHF_ALLOC)
@@ -631,6 +640,8 @@ public:
   void finalize() override;
   Error removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
   void markSymbols() override;
+  void replaceSectionReferences(
+      const DenseMap<SectionBase *, SectionBase *> &FromTo) override;
 
   static bool classof(const SectionBase *S) {
     return S->Type == ELF::SHT_GROUP;
@@ -769,6 +780,7 @@ private:
 
   std::vector<SecPtr> Sections;
   std::vector<SegPtr> Segments;
+  std::vector<SecPtr> RemovedSections;
 
 public:
   template <class T>
@@ -811,6 +823,8 @@ public:
         find_if(Sections, [&](const SecPtr &Sec) { return Sec->Name == Name; });
     return SecIt == Sections.end() ? nullptr : SecIt->get();
   }
+  SectionTableRef removedSections() { return SectionTableRef(RemovedSections); }
+
   Range<Segment> segments() { return make_pointee_range(Segments); }
   ConstRange<Segment> segments() const { return make_pointee_range(Segments); }
 

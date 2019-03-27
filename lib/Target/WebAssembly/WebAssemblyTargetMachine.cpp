@@ -14,8 +14,10 @@
 #include "WebAssemblyTargetMachine.h"
 #include "MCTargetDesc/WebAssemblyMCTargetDesc.h"
 #include "WebAssembly.h"
+#include "WebAssemblyMachineFunctionInfo.h"
 #include "WebAssemblyTargetObjectFile.h"
 #include "WebAssemblyTargetTransformInfo.h"
+#include "llvm/CodeGen/MIRParser/MIParser.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegAllocRegistry.h"
@@ -191,6 +193,12 @@ public:
   void addPostRegAlloc() override;
   bool addGCPasses() override { return false; }
   void addPreEmitPass() override;
+
+  // No reg alloc
+  bool addRegAssignmentFast() override { return false; }
+
+  // No reg alloc
+  bool addRegAssignmentOptimized() override { return false; }
 };
 } // end anonymous namespace
 
@@ -360,4 +368,25 @@ void WebAssemblyPassConfig::addPreEmitPass() {
 
   // Create a mapping from LLVM CodeGen virtual registers to wasm registers.
   addPass(createWebAssemblyRegNumbering());
+}
+
+yaml::MachineFunctionInfo *
+WebAssemblyTargetMachine::createDefaultFuncInfoYAML() const {
+  return new yaml::WebAssemblyFunctionInfo();
+}
+
+yaml::MachineFunctionInfo *WebAssemblyTargetMachine::convertFuncInfoToYAML(
+    const MachineFunction &MF) const {
+  const auto *MFI = MF.getInfo<WebAssemblyFunctionInfo>();
+  return new yaml::WebAssemblyFunctionInfo(*MFI);
+}
+
+bool WebAssemblyTargetMachine::parseMachineFunctionInfo(
+    const yaml::MachineFunctionInfo &MFI, PerFunctionMIParsingState &PFS,
+    SMDiagnostic &Error, SMRange &SourceRange) const {
+  const auto &YamlMFI =
+      reinterpret_cast<const yaml::WebAssemblyFunctionInfo &>(MFI);
+  MachineFunction &MF = PFS.MF;
+  MF.getInfo<WebAssemblyFunctionInfo>()->initializeBaseYamlFields(YamlMFI);
+  return false;
 }

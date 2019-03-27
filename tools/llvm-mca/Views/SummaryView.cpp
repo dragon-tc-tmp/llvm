@@ -23,8 +23,9 @@ namespace mca {
 #define DEBUG_TYPE "llvm-mca"
 
 SummaryView::SummaryView(const MCSchedModel &Model, ArrayRef<MCInst> S,
-                         unsigned Width)
-    : SM(Model), Source(S), DispatchWidth(Width), LastInstructionIdx(0),
+                         unsigned Width, bool EmitBottleneckAnalysis)
+    : SM(Model), Source(S), DispatchWidth(Width?Width: Model.IssueWidth),
+      LastInstructionIdx(0),
       TotalCycles(0), NumMicroOps(0), BPI({0, 0, 0, 0, 0}),
       ResourcePressureDistribution(Model.getNumProcResourceKinds(), 0),
       ProcResourceUsage(Model.getNumProcResourceKinds(), 0),
@@ -32,7 +33,8 @@ SummaryView::SummaryView(const MCSchedModel &Model, ArrayRef<MCInst> S,
       ResIdx2ProcResID(Model.getNumProcResourceKinds(), 0),
       PressureIncreasedBecauseOfResources(false),
       PressureIncreasedBecauseOfDataDependencies(false),
-      SeenStallCycles(false) {
+      SeenStallCycles(false),
+      ShouldEmitBottleneckAnalysis(EmitBottleneckAnalysis) {
   computeProcResourceMasks(SM, ProcResourceMasks);
   for (unsigned I = 1, E = SM.getNumProcResourceKinds(); I < E; ++I) {
     unsigned Index = getResourceStateIndex(ProcResourceMasks[I]);
@@ -111,8 +113,10 @@ void SummaryView::onEvent(const HWPressureEvent &Event) {
 }
 
 void SummaryView::printBottleneckHints(raw_ostream &OS) const {
-  if (!SeenStallCycles || !BPI.PressureIncreaseCycles)
+  if (!SeenStallCycles || !BPI.PressureIncreaseCycles) {
+    OS << "\nNo resource or data dependency bottlenecks discovered.\n";
     return;
+  }
 
   double PressurePerCycle =
       (double)BPI.PressureIncreaseCycles * 100 / TotalCycles;
@@ -181,8 +185,8 @@ void SummaryView::printView(raw_ostream &OS) const {
   TempStream << "\nBlock RThroughput: "
              << format("%.1f", floor((BlockRThroughput * 10) + 0.5) / 10)
              << '\n';
-
-  printBottleneckHints(TempStream);
+  if (ShouldEmitBottleneckAnalysis)
+    printBottleneckHints(TempStream);
   TempStream.flush();
   OS << Buffer;
 }
