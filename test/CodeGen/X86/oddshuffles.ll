@@ -1061,7 +1061,7 @@ define void @interleave_24i16_out(<24 x i16>* %p, <8 x i16>* %q1, <8 x i16>* %q2
 ; AVX1-NEXT:    vpshufd {{.*#+}} xmm3 = xmm2[0,1,2,1]
 ; AVX1-NEXT:    vpshufhw {{.*#+}} xmm3 = xmm3[0,1,2,3,4,5,6,5]
 ; AVX1-NEXT:    vpblendw {{.*#+}} xmm4 = xmm0[0],xmm1[1],xmm0[2,3],xmm1[4],xmm0[5,6],xmm1[7]
-; AVX1-NEXT:    vpshufb {{.*#+}} xmm4 = xmm4[0,1,6,7,12,13,2,3,8,9,14,15,u,u,u,u]
+; AVX1-NEXT:    vpshufb {{.*#+}} xmm4 = xmm4[0,1,6,7,12,13,2,3,8,9,14,15,12,13,14,15]
 ; AVX1-NEXT:    vpblendw {{.*#+}} xmm3 = xmm4[0,1,2,3,4,5],xmm3[6,7]
 ; AVX1-NEXT:    vpshufb {{.*#+}} xmm4 = xmm2[0,1,6,7,4,5,6,7,0,1,0,1,6,7,12,13]
 ; AVX1-NEXT:    vpblendw {{.*#+}} xmm5 = xmm0[0,1],xmm1[2],xmm0[3,4],xmm1[5],xmm0[6,7]
@@ -1219,7 +1219,7 @@ define void @interleave_24i16_in(<24 x i16>* %p, <8 x i16>* %q1, <8 x i16>* %q2,
 ; AVX2-NEXT:    vmovdqu (%rdx), %xmm1
 ; AVX2-NEXT:    vinserti128 $1, %xmm1, %ymm0, %ymm2
 ; AVX2-NEXT:    vbroadcasti128 {{.*#+}} ymm3 = mem[0,1,0,1]
-; AVX2-NEXT:    vpshufb {{.*#+}} ymm4 = ymm2[0,1,u,u,6,7,2,3,u,u,8,9,4,5,u,u,16,17,u,u,22,23,18,19,u,u,24,25,20,21,u,u]
+; AVX2-NEXT:    vpshufb {{.*#+}} ymm4 = ymm2[0,1,2,3,6,7,2,3,8,9,8,9,4,5,6,7,16,17,18,19,22,23,18,19,24,25,24,25,20,21,22,23]
 ; AVX2-NEXT:    vpermq {{.*#+}} ymm2 = ymm2[2,3,0,1]
 ; AVX2-NEXT:    vpshufb {{.*#+}} ymm2 = ymm2[u,u,0,1,u,u,u,u,2,3,u,u,u,u,4,5,u,u,22,23,u,u,u,u,24,25,u,u,u,u,26,27]
 ; AVX2-NEXT:    vpblendw {{.*#+}} ymm2 = ymm4[0],ymm2[1],ymm4[2,3],ymm2[4],ymm4[5,6],ymm2[7],ymm4[8],ymm2[9],ymm4[10,11],ymm2[12],ymm4[13,14],ymm2[15]
@@ -1771,19 +1771,11 @@ define <2 x double> @wrongorder(<4 x double> %A, <8 x double>* %P) #0 {
 define void @PR41097() {
 ; SSE2-LABEL: PR41097:
 ; SSE2:       # %bb.0:
-; SSE2-NEXT:    movss {{.*#+}} xmm0 = mem[0],zero,zero,zero
-; SSE2-NEXT:    movzwl (%rax), %eax
-; SSE2-NEXT:    movd %eax, %xmm1
-; SSE2-NEXT:    shufps {{.*#+}} xmm1 = xmm1[0,0],xmm0[2,0]
-; SSE2-NEXT:    pshuflw {{.*#+}} xmm0 = xmm0[0,1,1,3,4,5,6,7]
-; SSE2-NEXT:    shufps {{.*#+}} xmm0 = xmm0[0,1],xmm1[0,2]
-; SSE2-NEXT:    pshuflw {{.*#+}} xmm0 = xmm0[0,2,2,3,4,5,6,7]
-; SSE2-NEXT:    pshufhw {{.*#+}} xmm0 = xmm0[0,1,2,3,4,6,6,7]
-; SSE2-NEXT:    pshufd {{.*#+}} xmm0 = xmm0[0,2,2,3]
+; SSE2-NEXT:    movd {{.*#+}} xmm0 = mem[0],zero,zero,zero
 ; SSE2-NEXT:    punpcklbw {{.*#+}} xmm0 = xmm0[0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7]
 ; SSE2-NEXT:    pshuflw {{.*#+}} xmm0 = xmm0[0,0,2,3,4,5,6,7]
 ; SSE2-NEXT:    psrad $24, %xmm0
-; SSE2-NEXT:    xorps %xmm1, %xmm1
+; SSE2-NEXT:    pxor %xmm1, %xmm1
 ; SSE2-NEXT:    punpckldq {{.*#+}} xmm0 = xmm0[0],xmm1[0],xmm0[1],xmm1[1]
 ; SSE2-NEXT:    movdqu %xmm0, (%rax)
 ; SSE2-NEXT:    retq
