@@ -149,6 +149,12 @@ static cl::opt<bool> EnableLowerKernelArguments(
   cl::init(true),
   cl::Hidden);
 
+static cl::opt<bool> EnableRegReassign(
+  "amdgpu-reassign-regs",
+  cl::desc("Enable register reassign optimizations on gfx10+"),
+  cl::init(true),
+  cl::Hidden);
+
 // Enable atomic optimization
 static cl::opt<bool> EnableAtomicOptimizations(
   "amdgpu-atomic-optimizations",
@@ -228,6 +234,8 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPUUseNativeCallsPass(*PR);
   initializeAMDGPUSimplifyLibCallsPass(*PR);
   initializeAMDGPUInlinerPass(*PR);
+  initializeGCNRegBankReassignPass(*PR);
+  initializeGCNNSAReassignPass(*PR);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
@@ -552,7 +560,13 @@ public:
   bool addPreISel() override;
   bool addInstSelector() override;
   bool addGCPasses() override;
+
+  std::unique_ptr<CSEConfigBase> getCSEConfig() const override;
 };
+
+std::unique_ptr<CSEConfigBase> AMDGPUPassConfig::getCSEConfig() const {
+  return getStandardCSEConfigForOpt(TM->getOptLevel());
+}
 
 class R600PassConfig final : public AMDGPUPassConfig {
 public:
@@ -599,6 +613,7 @@ public:
   void addFastRegAlloc() override;
   void addOptimizedRegAlloc() override;
   void addPreRegAlloc() override;
+  bool addPreRewrite() override;
   void addPostRegAlloc() override;
   void addPreSched2() override;
   void addPreEmitPass() override;
@@ -918,6 +933,14 @@ void GCNPassConfig::addOptimizedRegAlloc() {
     insertPass(&RenameIndependentSubregsID, &DeadMachineInstructionElimID);
 
   TargetPassConfig::addOptimizedRegAlloc();
+}
+
+bool GCNPassConfig::addPreRewrite() {
+  if (EnableRegReassign) {
+    addPass(&GCNNSAReassignID);
+    addPass(&GCNRegBankReassignID);
+  }
+  return true;
 }
 
 void GCNPassConfig::addPostRegAlloc() {

@@ -535,8 +535,7 @@ bool IRTranslator::translateExtractValue(const User &U,
   uint64_t Offset = getOffsetFromIndices(U, *DL);
   ArrayRef<unsigned> SrcRegs = getOrCreateVRegs(*Src);
   ArrayRef<uint64_t> Offsets = *VMap.getOffsets(*Src);
-  unsigned Idx = std::lower_bound(Offsets.begin(), Offsets.end(), Offset) -
-                 Offsets.begin();
+  unsigned Idx = llvm::lower_bound(Offsets, Offset) - Offsets.begin();
   auto &DstRegs = allocateVRegs(U);
 
   for (unsigned i = 0; i < DstRegs.size(); ++i)
@@ -609,7 +608,7 @@ bool IRTranslator::translateCast(unsigned Opcode, const User &U,
                                  MachineIRBuilder &MIRBuilder) {
   unsigned Op = getOrCreateVReg(*U.getOperand(0));
   unsigned Res = getOrCreateVReg(U);
-  MIRBuilder.buildInstr(Opcode).addDef(Res).addUse(Op);
+  MIRBuilder.buildInstr(Opcode, {Res}, {Op});
   return true;
 }
 
@@ -646,9 +645,9 @@ bool IRTranslator::translateGetElementPtr(const User &U,
 
       if (Offset != 0) {
         unsigned NewBaseReg = MRI->createGenericVirtualRegister(PtrTy);
-        unsigned OffsetReg =
-            getOrCreateVReg(*ConstantInt::get(OffsetIRTy, Offset));
-        MIRBuilder.buildGEP(NewBaseReg, BaseReg, OffsetReg);
+        LLT OffsetTy = getLLTForType(*OffsetIRTy, *DL);
+        auto OffsetMIB = MIRBuilder.buildConstant({OffsetTy}, Offset);
+        MIRBuilder.buildGEP(NewBaseReg, BaseReg, OffsetMIB.getReg(0));
 
         BaseReg = NewBaseReg;
         Offset = 0;
@@ -665,11 +664,10 @@ bool IRTranslator::translateGetElementPtr(const User &U,
       // Avoid doing it for ElementSize of 1.
       unsigned GepOffsetReg;
       if (ElementSize != 1) {
-        unsigned ElementSizeReg =
-            getOrCreateVReg(*ConstantInt::get(OffsetIRTy, ElementSize));
-
         GepOffsetReg = MRI->createGenericVirtualRegister(OffsetTy);
-        MIRBuilder.buildMul(GepOffsetReg, ElementSizeReg, IdxReg);
+        auto ElementSizeMIB = MIRBuilder.buildConstant(
+            getLLTForType(*OffsetIRTy, *DL), ElementSize);
+        MIRBuilder.buildMul(GepOffsetReg, ElementSizeMIB.getReg(0), IdxReg);
       } else
         GepOffsetReg = IdxReg;
 
@@ -680,8 +678,9 @@ bool IRTranslator::translateGetElementPtr(const User &U,
   }
 
   if (Offset != 0) {
-    unsigned OffsetReg = getOrCreateVReg(*ConstantInt::get(OffsetIRTy, Offset));
-    MIRBuilder.buildGEP(getOrCreateVReg(U), BaseReg, OffsetReg);
+    auto OffsetMIB =
+        MIRBuilder.buildConstant(getLLTForType(*OffsetIRTy, *DL), Offset);
+    MIRBuilder.buildGEP(getOrCreateVReg(U), BaseReg, OffsetMIB.getReg(0));
     return true;
   }
 
@@ -789,8 +788,12 @@ unsigned IRTranslator::getSimpleIntrinsicOpcode(Intrinsic::ID ID) {
       return TargetOpcode::G_FLOG2;
     case Intrinsic::log10:
       return TargetOpcode::G_FLOG10;
+    case Intrinsic::nearbyint:
+      return TargetOpcode::G_FNEARBYINT;
     case Intrinsic::pow:
       return TargetOpcode::G_FPOW;
+    case Intrinsic::rint:
+      return TargetOpcode::G_FRINT;
     case Intrinsic::round:
       return TargetOpcode::G_INTRINSIC_ROUND;
     case Intrinsic::sin:
@@ -845,13 +848,13 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
 
     // Get the underlying objects for the location passed on the lifetime
     // marker.
-    SmallVector<Value *, 4> Allocas;
+    SmallVector<const Value *, 4> Allocas;
     GetUnderlyingObjects(CI.getArgOperand(1), Allocas, *DL);
 
     // Iterate over each underlying object, creating lifetime markers for each
     // static alloca. Quit if we find a non-static alloca.
-    for (Value *V : Allocas) {
-      AllocaInst *AI = dyn_cast<AllocaInst>(V);
+    for (const Value *V : Allocas) {
+      const AllocaInst *AI = dyn_cast<AllocaInst>(V);
       if (!AI)
         continue;
 
@@ -1167,6 +1170,8 @@ bool IRTranslator::translateCall(const User &U, MachineIRBuilder &MIRBuilder) {
 
   MachineInstrBuilder MIB =
       MIRBuilder.buildIntrinsic(ID, ResultRegs, !CI.doesNotAccessMemory());
+  if (isa<FPMathOperator>(CI))
+    MIB->copyIRFlags(CI);
 
   for (auto &Arg : CI.arg_operands()) {
     // Some intrinsics take metadata parameters. Reject them.
@@ -1730,8 +1735,7 @@ bool IRTranslator::runOnMachineFunction(MachineFunction &CurMF) {
 
   if (EnableCSE) {
     EntryBuilder = make_unique<CSEMIRBuilder>(CurMF);
-    std::unique_ptr<CSEConfig> Config = make_unique<CSEConfig>();
-    CSEInfo = &Wrapper.get(std::move(Config));
+    CSEInfo = &Wrapper.get(TPC->getCSEConfig());
     EntryBuilder->setCSEInfo(CSEInfo);
     CurBuilder = make_unique<CSEMIRBuilder>(CurMF);
     CurBuilder->setCSEInfo(CSEInfo);

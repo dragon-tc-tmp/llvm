@@ -256,8 +256,8 @@ static bool isStride64(unsigned Opc) {
   }
 }
 
-bool SIInstrInfo::getMemOperandWithOffset(MachineInstr &LdSt,
-                                          MachineOperand *&BaseOp,
+bool SIInstrInfo::getMemOperandWithOffset(const MachineInstr &LdSt,
+                                          const MachineOperand *&BaseOp,
                                           int64_t &Offset,
                                           const TargetRegisterInfo *TRI) const {
   unsigned Opc = LdSt.getOpcode();
@@ -321,7 +321,7 @@ bool SIInstrInfo::getMemOperandWithOffset(MachineInstr &LdSt,
     if (SOffset && SOffset->isReg())
       return false;
 
-    MachineOperand *AddrReg = getNamedOperand(LdSt, AMDGPU::OpName::vaddr);
+    const MachineOperand *AddrReg = getNamedOperand(LdSt, AMDGPU::OpName::vaddr);
     if (!AddrReg)
       return false;
 
@@ -344,7 +344,7 @@ bool SIInstrInfo::getMemOperandWithOffset(MachineInstr &LdSt,
     if (!OffsetImm)
       return false;
 
-    MachineOperand *SBaseReg = getNamedOperand(LdSt, AMDGPU::OpName::sbase);
+    const MachineOperand *SBaseReg = getNamedOperand(LdSt, AMDGPU::OpName::sbase);
     BaseOp = SBaseReg;
     Offset = OffsetImm->getImm();
     assert(BaseOp->isReg() && "getMemOperandWithOffset only supports base "
@@ -353,7 +353,7 @@ bool SIInstrInfo::getMemOperandWithOffset(MachineInstr &LdSt,
   }
 
   if (isFLAT(LdSt)) {
-    MachineOperand *VAddr = getNamedOperand(LdSt, AMDGPU::OpName::vaddr);
+    const MachineOperand *VAddr = getNamedOperand(LdSt, AMDGPU::OpName::vaddr);
     if (VAddr) {
       // Can't analyze 2 offsets.
       if (getNamedOperand(LdSt, AMDGPU::OpName::saddr))
@@ -409,11 +409,11 @@ static bool memOpsHaveSameBasePtr(const MachineInstr &MI1,
   return Base1 == Base2;
 }
 
-bool SIInstrInfo::shouldClusterMemOps(MachineOperand &BaseOp1,
-                                      MachineOperand &BaseOp2,
+bool SIInstrInfo::shouldClusterMemOps(const MachineOperand &BaseOp1,
+                                      const MachineOperand &BaseOp2,
                                       unsigned NumLoads) const {
-  MachineInstr &FirstLdSt = *BaseOp1.getParent();
-  MachineInstr &SecondLdSt = *BaseOp2.getParent();
+  const MachineInstr &FirstLdSt = *BaseOp1.getParent();
+  const MachineInstr &SecondLdSt = *BaseOp2.getParent();
 
   if (!memOpsHaveSameBasePtr(FirstLdSt, BaseOp1, SecondLdSt, BaseOp2))
     return false;
@@ -1214,12 +1214,6 @@ bool SIInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.setDesc(get(AMDGPU::S_XOR_B64));
     break;
 
-  case AMDGPU::S_OR_B64_term:
-    // This is only a terminator to get the correct spill code placement during
-    // register allocation.
-    MI.setDesc(get(AMDGPU::S_OR_B64));
-    break;
-
   case AMDGPU::S_ANDN2_B64_term:
     // This is only a terminator to get the correct spill code placement during
     // register allocation.
@@ -1704,7 +1698,6 @@ bool SIInstrInfo::analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
     case AMDGPU::SI_MASK_BRANCH:
     case AMDGPU::S_MOV_B64_term:
     case AMDGPU::S_XOR_B64_term:
-    case AMDGPU::S_OR_B64_term:
     case AMDGPU::S_ANDN2_B64_term:
       break;
     case AMDGPU::SI_IF:
@@ -2223,9 +2216,9 @@ static bool offsetsDoNotOverlap(int WidthA, int OffsetA,
   return LowOffset + LowWidth <= HighOffset;
 }
 
-bool SIInstrInfo::checkInstOffsetsDoNotOverlap(MachineInstr &MIa,
-                                               MachineInstr &MIb) const {
-  MachineOperand *BaseOp0, *BaseOp1;
+bool SIInstrInfo::checkInstOffsetsDoNotOverlap(const MachineInstr &MIa,
+                                               const MachineInstr &MIb) const {
+  const MachineOperand *BaseOp0, *BaseOp1;
   int64_t Offset0, Offset1;
 
   if (getMemOperandWithOffset(MIa, BaseOp0, Offset0, &RI) &&
@@ -2247,8 +2240,8 @@ bool SIInstrInfo::checkInstOffsetsDoNotOverlap(MachineInstr &MIa,
   return false;
 }
 
-bool SIInstrInfo::areMemAccessesTriviallyDisjoint(MachineInstr &MIa,
-                                                  MachineInstr &MIb,
+bool SIInstrInfo::areMemAccessesTriviallyDisjoint(const MachineInstr &MIa,
+                                                  const MachineInstr &MIb,
                                                   AliasAnalysis *AA) const {
   assert((MIa.mayLoad() || MIa.mayStore()) &&
          "MIa must load from or modify a memory location");
@@ -2819,10 +2812,12 @@ static bool shouldReadExec(const MachineInstr &MI) {
   if (SIInstrInfo::isVALU(MI)) {
     switch (MI.getOpcode()) {
     case AMDGPU::V_READLANE_B32:
-    case AMDGPU::V_READLANE_B32_si:
+    case AMDGPU::V_READLANE_B32_gfx6_gfx7:
+    case AMDGPU::V_READLANE_B32_gfx10:
     case AMDGPU::V_READLANE_B32_vi:
     case AMDGPU::V_WRITELANE_B32:
-    case AMDGPU::V_WRITELANE_B32_si:
+    case AMDGPU::V_WRITELANE_B32_gfx6_gfx7:
+    case AMDGPU::V_WRITELANE_B32_gfx10:
     case AMDGPU::V_WRITELANE_B32_vi:
       return false;
     }
@@ -3225,6 +3220,53 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
     if (Offset->getImm() != 0) {
       ErrInfo = "subtarget does not support offsets in flat instructions";
       return false;
+    }
+  }
+
+  if (isMIMG(MI)) {
+    const MachineOperand *DimOp = getNamedOperand(MI, AMDGPU::OpName::dim);
+    if (DimOp) {
+      int VAddr0Idx = AMDGPU::getNamedOperandIdx(Opcode,
+                                                 AMDGPU::OpName::vaddr0);
+      int SRsrcIdx = AMDGPU::getNamedOperandIdx(Opcode, AMDGPU::OpName::srsrc);
+      const AMDGPU::MIMGInfo *Info = AMDGPU::getMIMGInfo(Opcode);
+      const AMDGPU::MIMGBaseOpcodeInfo *BaseOpcode =
+          AMDGPU::getMIMGBaseOpcodeInfo(Info->BaseOpcode);
+      const AMDGPU::MIMGDimInfo *Dim =
+          AMDGPU::getMIMGDimInfoByEncoding(DimOp->getImm());
+
+      if (!Dim) {
+        ErrInfo = "dim is out of range";
+        return false;
+      }
+
+      bool IsNSA = SRsrcIdx - VAddr0Idx > 1;
+      unsigned AddrWords = BaseOpcode->NumExtraArgs +
+                           (BaseOpcode->Gradients ? Dim->NumGradients : 0) +
+                           (BaseOpcode->Coordinates ? Dim->NumCoords : 0) +
+                           (BaseOpcode->LodOrClampOrMip ? 1 : 0);
+
+      unsigned VAddrWords;
+      if (IsNSA) {
+        VAddrWords = SRsrcIdx - VAddr0Idx;
+      } else {
+        const TargetRegisterClass *RC = getOpRegClass(MI, VAddr0Idx);
+        VAddrWords = MRI.getTargetRegisterInfo()->getRegSizeInBits(*RC) / 32;
+        if (AddrWords > 8)
+          AddrWords = 16;
+        else if (AddrWords > 4)
+          AddrWords = 8;
+        else if (AddrWords == 3 && VAddrWords == 4) {
+          // CodeGen uses the V4 variant of instructions for three addresses,
+          // because the selection DAG does not support non-power-of-two types.
+          AddrWords = 4;
+        }
+      }
+
+      if (VAddrWords != AddrWords) {
+        ErrInfo = "bad vaddr size";
+        return false;
+      }
     }
   }
 
@@ -4170,6 +4212,10 @@ void SIInstrInfo::legalizeOperands(MachineInstr &MI,
         if (const MachineOperand *GLC =
                 getNamedOperand(MI, AMDGPU::OpName::glc)) {
           MIB.addImm(GLC->getImm());
+        }
+        if (const MachineOperand *DLC =
+                getNamedOperand(MI, AMDGPU::OpName::dlc)) {
+          MIB.addImm(DLC->getImm());
         }
 
         MIB.addImm(getNamedImmOperand(MI, AMDGPU::OpName::slc));
@@ -5357,23 +5403,33 @@ unsigned SIInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
       return DescSize; // No operands.
 
     if (isLiteralConstantLike(MI.getOperand(Src0Idx), Desc.OpInfo[Src0Idx]))
-      return DescSize + 4;
+      return isVOP3(MI) ? 12 : (DescSize + 4);
 
     int Src1Idx = AMDGPU::getNamedOperandIdx(Opc, AMDGPU::OpName::src1);
     if (Src1Idx == -1)
       return DescSize;
 
     if (isLiteralConstantLike(MI.getOperand(Src1Idx), Desc.OpInfo[Src1Idx]))
-      return DescSize + 4;
+      return isVOP3(MI) ? 12 : (DescSize + 4);
 
     int Src2Idx = AMDGPU::getNamedOperandIdx(Opc, AMDGPU::OpName::src2);
     if (Src2Idx == -1)
       return DescSize;
 
     if (isLiteralConstantLike(MI.getOperand(Src2Idx), Desc.OpInfo[Src2Idx]))
-      return DescSize + 4;
+      return isVOP3(MI) ? 12 : (DescSize + 4);
 
     return DescSize;
+  }
+
+  // Check whether we have extra NSA words.
+  if (isMIMG(MI)) {
+    int VAddr0Idx = AMDGPU::getNamedOperandIdx(Opc, AMDGPU::OpName::vaddr0);
+    if (VAddr0Idx < 0)
+      return 8;
+
+    int RSrcIdx = AMDGPU::getNamedOperandIdx(Opc, AMDGPU::OpName::srsrc);
+    return 8 + 4 * ((RSrcIdx - VAddr0Idx + 2) / 4);
   }
 
   switch (Opc) {
@@ -5591,7 +5647,9 @@ enum SIEncodingFamily {
   SDWA = 2,
   SDWA9 = 3,
   GFX80 = 4,
-  GFX9 = 5
+  GFX9 = 5,
+  GFX10 = 6,
+  SDWA10 = 7
 };
 
 static SIEncodingFamily subtargetEncodingFamily(const GCNSubtarget &ST) {
@@ -5604,6 +5662,8 @@ static SIEncodingFamily subtargetEncodingFamily(const GCNSubtarget &ST) {
   case AMDGPUSubtarget::VOLCANIC_ISLANDS:
   case AMDGPUSubtarget::GFX9:
     return SIEncodingFamily::VI;
+  case AMDGPUSubtarget::GFX10:
+    return SIEncodingFamily::GFX10;
   }
   llvm_unreachable("Unknown subtarget generation!");
 }

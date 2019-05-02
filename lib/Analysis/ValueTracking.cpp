@@ -625,7 +625,10 @@ static void computeKnownBitsFromAssume(const Value *V, KnownBits &Known,
 
     CmpInst::Predicate Pred;
     uint64_t C;
-    if (Cmp->getPredicate() == ICmpInst::ICMP_EQ) {
+    switch (Cmp->getPredicate()) {
+    default:
+      break;
+    case ICmpInst::ICMP_EQ:
       // assume(v = a)
       if (match(Cmp, m_c_ICmp(Pred, m_V, m_Value(A))) &&
           isValidAssumeForContext(I, Q.CxtI, Q.DT)) {
@@ -762,7 +765,8 @@ static void computeKnownBitsFromAssume(const Value *V, KnownBits &Known,
         Known.Zero |= RHSKnown.One  << C;
         Known.One  |= RHSKnown.Zero << C;
       }
-    } else if (Cmp->getPredicate() == ICmpInst::ICMP_SGE) {
+      break;
+    case ICmpInst::ICMP_SGE:
       // assume(v >=_s c) where c is non-negative
       if (match(Cmp, m_ICmp(Pred, m_V, m_Value(A))) &&
           isValidAssumeForContext(I, Q.CxtI, Q.DT)) {
@@ -774,7 +778,8 @@ static void computeKnownBitsFromAssume(const Value *V, KnownBits &Known,
           Known.makeNonNegative();
         }
       }
-    } else if (Cmp->getPredicate() == ICmpInst::ICMP_SGT) {
+      break;
+    case ICmpInst::ICMP_SGT:
       // assume(v >_s c) where c is at least -1.
       if (match(Cmp, m_ICmp(Pred, m_V, m_Value(A))) &&
           isValidAssumeForContext(I, Q.CxtI, Q.DT)) {
@@ -786,7 +791,8 @@ static void computeKnownBitsFromAssume(const Value *V, KnownBits &Known,
           Known.makeNonNegative();
         }
       }
-    } else if (Cmp->getPredicate() == ICmpInst::ICMP_SLE) {
+      break;
+    case ICmpInst::ICMP_SLE:
       // assume(v <=_s c) where c is negative
       if (match(Cmp, m_ICmp(Pred, m_V, m_Value(A))) &&
           isValidAssumeForContext(I, Q.CxtI, Q.DT)) {
@@ -798,7 +804,8 @@ static void computeKnownBitsFromAssume(const Value *V, KnownBits &Known,
           Known.makeNegative();
         }
       }
-    } else if (Cmp->getPredicate() == ICmpInst::ICMP_SLT) {
+      break;
+    case ICmpInst::ICMP_SLT:
       // assume(v <_s c) where c is non-positive
       if (match(Cmp, m_ICmp(Pred, m_V, m_Value(A))) &&
           isValidAssumeForContext(I, Q.CxtI, Q.DT)) {
@@ -810,8 +817,9 @@ static void computeKnownBitsFromAssume(const Value *V, KnownBits &Known,
           Known.makeNegative();
         }
       }
-    // assume(v <=_u c)
-    } else if (Cmp->getPredicate() == ICmpInst::ICMP_ULE) {
+      break;
+    case ICmpInst::ICMP_ULE:
+      // assume(v <=_u c)
       if (match(Cmp, m_ICmp(Pred, m_V, m_Value(A))) &&
           isValidAssumeForContext(I, Q.CxtI, Q.DT)) {
         KnownBits RHSKnown(BitWidth);
@@ -820,8 +828,9 @@ static void computeKnownBitsFromAssume(const Value *V, KnownBits &Known,
         // Whatever high bits in c are zero are known to be zero.
         Known.Zero.setHighBits(RHSKnown.countMinLeadingZeros());
       }
+      break;
+    case ICmpInst::ICMP_ULT:
       // assume(v <_u c)
-    } else if (Cmp->getPredicate() == ICmpInst::ICMP_ULT) {
       if (match(Cmp, m_ICmp(Pred, m_V, m_Value(A))) &&
           isValidAssumeForContext(I, Q.CxtI, Q.DT)) {
         KnownBits RHSKnown(BitWidth);
@@ -842,6 +851,7 @@ static void computeKnownBitsFromAssume(const Value *V, KnownBits &Known,
         else
           Known.Zero.setHighBits(RHSKnown.countMinLeadingZeros());
       }
+      break;
     }
   }
 
@@ -3761,26 +3771,27 @@ Value *llvm::GetUnderlyingObject(Value *V, const DataLayout &DL,
   return V;
 }
 
-void llvm::GetUnderlyingObjects(Value *V, SmallVectorImpl<Value *> &Objects,
+void llvm::GetUnderlyingObjects(const Value *V,
+                                SmallVectorImpl<const Value *> &Objects,
                                 const DataLayout &DL, LoopInfo *LI,
                                 unsigned MaxLookup) {
-  SmallPtrSet<Value *, 4> Visited;
-  SmallVector<Value *, 4> Worklist;
+  SmallPtrSet<const Value *, 4> Visited;
+  SmallVector<const Value *, 4> Worklist;
   Worklist.push_back(V);
   do {
-    Value *P = Worklist.pop_back_val();
+    const Value *P = Worklist.pop_back_val();
     P = GetUnderlyingObject(P, DL, MaxLookup);
 
     if (!Visited.insert(P).second)
       continue;
 
-    if (SelectInst *SI = dyn_cast<SelectInst>(P)) {
+    if (auto *SI = dyn_cast<SelectInst>(P)) {
       Worklist.push_back(SI->getTrueValue());
       Worklist.push_back(SI->getFalseValue());
       continue;
     }
 
-    if (PHINode *PN = dyn_cast<PHINode>(P)) {
+    if (auto *PN = dyn_cast<PHINode>(P)) {
       // If this PHI changes the underlying object in every iteration of the
       // loop, don't look through it.  Consider:
       //   int **A;
@@ -3841,10 +3852,10 @@ bool llvm::getUnderlyingObjectsForCodeGen(const Value *V,
   do {
     V = Working.pop_back_val();
 
-    SmallVector<Value *, 4> Objs;
-    GetUnderlyingObjects(const_cast<Value *>(V), Objs, DL);
+    SmallVector<const Value *, 4> Objs;
+    GetUnderlyingObjects(V, Objs, DL);
 
-    for (Value *V : Objs) {
+    for (const Value *V : Objs) {
       if (!Visited.insert(V).second)
         continue;
       if (Operator::getOpcode(V) == Instruction::IntToPtr) {
@@ -4196,23 +4207,12 @@ OverflowResult llvm::computeOverflowForSignedSub(const Value *LHS,
   return mapOverflowResult(LHSRange.signedSubMayOverflow(RHSRange));
 }
 
-bool llvm::isOverflowIntrinsicNoWrap(const IntrinsicInst *II,
+bool llvm::isOverflowIntrinsicNoWrap(const WithOverflowInst *WO,
                                      const DominatorTree &DT) {
-#ifndef NDEBUG
-  auto IID = II->getIntrinsicID();
-  assert((IID == Intrinsic::sadd_with_overflow ||
-          IID == Intrinsic::uadd_with_overflow ||
-          IID == Intrinsic::ssub_with_overflow ||
-          IID == Intrinsic::usub_with_overflow ||
-          IID == Intrinsic::smul_with_overflow ||
-          IID == Intrinsic::umul_with_overflow) &&
-         "Not an overflow intrinsic!");
-#endif
-
   SmallVector<const BranchInst *, 2> GuardingBranches;
   SmallVector<const ExtractValueInst *, 2> Results;
 
-  for (const User *U : II->users()) {
+  for (const User *U : WO->users()) {
     if (const auto *EVI = dyn_cast<ExtractValueInst>(U)) {
       assert(EVI->getNumIndices() == 1 && "Obvious from CI's type");
 
@@ -5727,8 +5727,7 @@ ConstantRange llvm::computeConstantRange(const Value *V, bool UseInstrInfo) {
   else if (auto *SI = dyn_cast<SelectInst>(V))
     setLimitsForSelectPattern(*SI, Lower, Upper);
 
-  ConstantRange CR = Lower != Upper ? ConstantRange(Lower, Upper)
-                                    : ConstantRange::getFull(BitWidth);
+  ConstantRange CR = ConstantRange::getNonEmpty(Lower, Upper);
 
   if (auto *I = dyn_cast<Instruction>(V))
     if (auto *Range = IIQ.getMetadata(I, LLVMContext::MD_range))

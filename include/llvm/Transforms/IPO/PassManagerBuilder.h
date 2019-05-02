@@ -145,9 +145,11 @@ public:
   bool DisableUnrollLoops;
   bool SLPVectorize;
   bool LoopVectorize;
+  bool LoopsInterleaved;
   bool RerollLoops;
   bool NewGVN;
   bool DisableGVNLoadPRE;
+  bool ForgetAllSCEVInLoopUnroll;
   bool VerifyInput;
   bool VerifyOutput;
   bool MergeFunctions;
@@ -155,6 +157,8 @@ public:
   bool PrepareForThinLTO;
   bool PerformThinLTO;
   bool DivergentTarget;
+  unsigned LicmMssaOptCap;
+  unsigned LicmMssaNoAccForPromotionCap;
 
   /// Enable profile instrumentation pass.
   bool EnablePGOInstrGen;

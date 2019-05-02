@@ -426,18 +426,18 @@ void DWARFDebugLine::ParsingState::resetRowAndSequence() {
 }
 
 void DWARFDebugLine::ParsingState::appendRowToMatrix() {
+  unsigned RowNumber = LineTable->Rows.size();
   if (Sequence.Empty) {
     // Record the beginning of instruction sequence.
     Sequence.Empty = false;
     Sequence.LowPC = Row.Address.Address;
     Sequence.FirstRowIndex = RowNumber;
   }
-  ++RowNumber;
   LineTable->appendRow(Row);
   if (Row.EndSequence) {
     // Record the end of instruction sequence.
     Sequence.HighPC = Row.Address.Address;
-    Sequence.LastRowIndex = RowNumber;
+    Sequence.LastRowIndex = RowNumber + 1;
     Sequence.SectionIndex = Row.Address.SectionIndex;
     if (Sequence.isValid())
       LineTable->appendSequence(Sequence);
@@ -969,14 +969,29 @@ bool DWARFDebugLine::LineTable::lookupAddressRangeImpl(
 }
 
 bool DWARFDebugLine::LineTable::hasFileAtIndex(uint64_t FileIndex) const {
+  uint16_t DwarfVersion = Prologue.getVersion();
+  assert(DwarfVersion != 0 && "LineTable has no dwarf version information");
+  if (DwarfVersion >= 5)
+    return FileIndex < Prologue.FileNames.size();
   return FileIndex != 0 && FileIndex <= Prologue.FileNames.size();
+}
+
+const llvm::DWARFDebugLine::FileNameEntry &
+DWARFDebugLine::LineTable::getFileNameEntry(uint64_t Index) const {
+  uint16_t DwarfVersion = Prologue.getVersion();
+  assert(DwarfVersion != 0 && "LineTable has no dwarf version information");
+  // In DWARF v5 the file names are 0-indexed.
+  if (DwarfVersion >= 5)
+    return Prologue.FileNames[Index];
+  else
+    return Prologue.FileNames[Index - 1];
 }
 
 Optional<StringRef> DWARFDebugLine::LineTable::getSourceByIndex(uint64_t FileIndex,
                                                                 FileLineInfoKind Kind) const {
   if (Kind == FileLineInfoKind::None || !hasFileAtIndex(FileIndex))
     return None;
-  const FileNameEntry &Entry = Prologue.FileNames[FileIndex - 1];
+  const FileNameEntry &Entry = getFileNameEntry(FileIndex);
   if (Optional<const char *> source = Entry.Source.getAsCString())
     return StringRef(*source);
   return None;
@@ -996,7 +1011,7 @@ bool DWARFDebugLine::LineTable::getFileNameByIndex(uint64_t FileIndex,
                                                    std::string &Result) const {
   if (Kind == FileLineInfoKind::None || !hasFileAtIndex(FileIndex))
     return false;
-  const FileNameEntry &Entry = Prologue.FileNames[FileIndex - 1];
+  const FileNameEntry &Entry = getFileNameEntry(FileIndex);
   StringRef FileName = Entry.Name.getAsCString().getValue();
   if (Kind != FileLineInfoKind::AbsoluteFilePath ||
       isPathAbsoluteOnWindowsOrPosix(FileName)) {
@@ -1017,8 +1032,7 @@ bool DWARFDebugLine::LineTable::getFileNameByIndex(uint64_t FileIndex,
   // We may still need to append compilation directory of compile unit.
   // We know that FileName is not absolute, the only way to have an
   // absolute path at this point would be if IncludeDir is absolute.
-  if (CompDir && Kind == FileLineInfoKind::AbsoluteFilePath &&
-      !isPathAbsoluteOnWindowsOrPosix(IncludeDir))
+  if (CompDir && !isPathAbsoluteOnWindowsOrPosix(IncludeDir))
     sys::path::append(FilePath, CompDir);
 
   // sys::path::append skips empty strings.

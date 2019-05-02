@@ -21,6 +21,8 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Type.h"
 
+#define DEBUG_TYPE "aarch64-legalinfo"
+
 using namespace llvm;
 using namespace LegalizeActions;
 using namespace LegalizeMutations;
@@ -71,7 +73,7 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
       .widenScalarToNextPow2(0);
 
   getActionDefinitionsBuilder(G_BSWAP)
-      .legalFor({s32, s64})
+      .legalFor({s32, s64, v4s32, v2s32, v2s64})
       .clampScalar(0, s16, s64)
       .widenScalarToNextPow2(0);
 
@@ -123,12 +125,14 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
   getActionDefinitionsBuilder({G_UADDE, G_USUBE, G_SADDO, G_SSUBO, G_UADDO})
       .legalFor({{s32, s1}, {s64, s1}});
 
-  getActionDefinitionsBuilder({G_FADD, G_FSUB, G_FMA, G_FMUL, G_FDIV, G_FNEG})
+  getActionDefinitionsBuilder({G_FADD, G_FSUB, G_FMUL, G_FDIV, G_FNEG})
     .legalFor({s32, s64, v2s64, v4s32, v2s32});
 
-  getActionDefinitionsBuilder({G_FREM, G_FPOW}).libcallFor({s32, s64});
+  getActionDefinitionsBuilder(G_FREM).libcallFor({s32, s64});
 
-  getActionDefinitionsBuilder({G_FCEIL, G_FABS, G_FSQRT, G_FFLOOR})
+  getActionDefinitionsBuilder({G_FCEIL, G_FABS, G_FSQRT, G_FFLOOR, G_FRINT,
+                               G_FMA, G_INTRINSIC_TRUNC, G_INTRINSIC_ROUND,
+                               G_FNEARBYINT})
       // If we don't have full FP16 support, then scalarize the elements of
       // vectors containing fp16 types.
       .fewerElementsIf(
@@ -148,7 +152,7 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
       .legalFor({s16, s32, s64, v2s32, v4s32, v2s64, v2s16, v4s16, v8s16});
 
   getActionDefinitionsBuilder(
-      {G_FCOS, G_FSIN, G_FLOG10, G_FLOG, G_FLOG2, G_FEXP, G_FEXP2})
+      {G_FCOS, G_FSIN, G_FLOG10, G_FLOG, G_FLOG2, G_FEXP, G_FEXP2, G_FPOW})
       // We need a call for these, so we always need to scalarize.
       .scalarize(0)
       // Regardless of FP16 support, widen 16-bit elements to 32-bits.
@@ -208,13 +212,27 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
       // Lower anything left over into G_*EXT and G_LOAD
       .lower();
 
+  auto IsPtrVecPred = [=](const LegalityQuery &Query) {
+    const LLT &ValTy = Query.Types[0];
+    if (!ValTy.isVector())
+      return false;
+    const LLT EltTy = ValTy.getElementType();
+    return EltTy.isPointer() && EltTy.getAddressSpace() == 0;
+  };
+
   getActionDefinitionsBuilder(G_LOAD)
       .legalForTypesWithMemDesc({{s8, p0, 8, 8},
                                  {s16, p0, 16, 8},
                                  {s32, p0, 32, 8},
                                  {s64, p0, 64, 8},
                                  {p0, p0, 64, 8},
-                                 {v2s32, p0, 64, 8}})
+                                 {v8s8, p0, 64, 8},
+                                 {v16s8, p0, 128, 8},
+                                 {v4s16, p0, 64, 8},
+                                 {v8s16, p0, 128, 8},
+                                 {v2s32, p0, 64, 8},
+                                 {v4s32, p0, 128, 8},
+                                 {v2s64, p0, 128, 8}})
       // These extends are also legal
       .legalForTypesWithMemDesc({{s32, p0, 8, 8},
                                  {s32, p0, 16, 8}})
@@ -228,7 +246,8 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
         return Query.Types[0].getSizeInBits() != Query.MMODescrs[0].SizeInBits;
       })
       .clampMaxNumElements(0, s32, 2)
-      .clampMaxNumElements(0, s64, 1);
+      .clampMaxNumElements(0, s64, 1)
+      .customIf(IsPtrVecPred);
 
   getActionDefinitionsBuilder(G_STORE)
       .legalForTypesWithMemDesc({{s8, p0, 8, 8},
@@ -236,7 +255,11 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
                                  {s32, p0, 32, 8},
                                  {s64, p0, 64, 8},
                                  {p0, p0, 64, 8},
+                                 {v16s8, p0, 128, 8},
+                                 {v4s16, p0, 64, 8},
+                                 {v8s16, p0, 128, 8},
                                  {v2s32, p0, 64, 8},
+                                 {v4s32, p0, 128, 8},
                                  {v2s64, p0, 128, 8}})
       .clampScalar(0, s8, s64)
       .widenScalarToNextPow2(0)
@@ -248,7 +271,8 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
                Query.Types[0].getSizeInBits() != Query.MMODescrs[0].SizeInBits;
       })
       .clampMaxNumElements(0, s32, 2)
-      .clampMaxNumElements(0, s64, 1);
+      .clampMaxNumElements(0, s64, 1)
+      .customIf(IsPtrVecPred);
 
   // Constants
   getActionDefinitionsBuilder(G_CONSTANT)
@@ -297,7 +321,29 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
 
   // Extensions
   getActionDefinitionsBuilder({G_ZEXT, G_SEXT, G_ANYEXT})
-      .legalForCartesianProduct({s8, s16, s32, s64}, {s1, s8, s16, s32});
+      .legalIf([=](const LegalityQuery &Query) {
+        unsigned DstSize = Query.Types[0].getSizeInBits();
+
+        // Make sure that we have something that will fit in a register, and
+        // make sure it's a power of 2.
+        if (DstSize < 8 || DstSize > 128 || !isPowerOf2_32(DstSize))
+          return false;
+
+        const LLT &SrcTy = Query.Types[1];
+
+        // Special case for s1.
+        if (SrcTy == s1)
+          return true;
+
+        // Make sure we fit in a register otherwise. Don't bother checking that
+        // the source type is below 128 bits. We shouldn't be allowing anything
+        // through which is wider than the destination in the first place.
+        unsigned SrcSize = SrcTy.getSizeInBits();
+        if (SrcSize < 8 || !isPowerOf2_32(SrcSize))
+          return false;
+
+        return true;
+      });
 
   getActionDefinitionsBuilder(G_TRUNC).alwaysLegal();
 
@@ -357,7 +403,8 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
       // number of bits but it's what the previous code described and fixing
       // it breaks tests.
       .legalForCartesianProduct({s1, s8, s16, s32, s64, s128, v16s8, v8s8, v4s8,
-                                 v8s16, v4s16, v2s16, v4s32, v2s32, v2s64});
+                                 v8s16, v4s16, v2s16, v4s32, v2s32, v2s64,
+                                 v2p0});
 
   getActionDefinitionsBuilder(G_VASTART).legalFor({p0});
 
@@ -470,8 +517,8 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
       .minScalar(2, s64)
       .legalIf([=](const LegalityQuery &Query) {
         const LLT &VecTy = Query.Types[1];
-        return VecTy == v2s16 || VecTy == v4s16 || VecTy == v4s32 ||
-               VecTy == v2s64 || VecTy == v2s32;
+        return VecTy == v2s16 || VecTy == v4s16 || VecTy == v8s16 ||
+               VecTy == v4s32 || VecTy == v2s64 || VecTy == v2s32;
       });
 
   getActionDefinitionsBuilder(G_INSERT_VECTOR_ELT)
@@ -541,9 +588,51 @@ bool AArch64LegalizerInfo::legalizeCustom(MachineInstr &MI,
     return false;
   case TargetOpcode::G_VAARG:
     return legalizeVaArg(MI, MRI, MIRBuilder);
+  case TargetOpcode::G_LOAD:
+  case TargetOpcode::G_STORE:
+    return legalizeLoadStore(MI, MRI, MIRBuilder, Observer);
   }
 
   llvm_unreachable("expected switch to return");
+}
+
+bool AArch64LegalizerInfo::legalizeLoadStore(
+    MachineInstr &MI, MachineRegisterInfo &MRI, MachineIRBuilder &MIRBuilder,
+    GISelChangeObserver &Observer) const {
+  assert(MI.getOpcode() == TargetOpcode::G_STORE ||
+         MI.getOpcode() == TargetOpcode::G_LOAD);
+  // Here we just try to handle vector loads/stores where our value type might
+  // have pointer elements, which the SelectionDAG importer can't handle. To
+  // allow the existing patterns for s64 to fire for p0, we just try to bitcast
+  // the value to use s64 types.
+
+  // Custom legalization requires the instruction, if not deleted, must be fully
+  // legalized. In order to allow further legalization of the inst, we create
+  // a new instruction and erase the existing one.
+
+  unsigned ValReg = MI.getOperand(0).getReg();
+  const LLT ValTy = MRI.getType(ValReg);
+
+  if (!ValTy.isVector() || !ValTy.getElementType().isPointer() ||
+      ValTy.getElementType().getAddressSpace() != 0) {
+    LLVM_DEBUG(dbgs() << "Tried to do custom legalization on wrong load/store");
+    return false;
+  }
+
+  MIRBuilder.setInstr(MI);
+  unsigned PtrSize = ValTy.getElementType().getSizeInBits();
+  const LLT NewTy = LLT::vector(ValTy.getNumElements(), PtrSize);
+  auto &MMO = **MI.memoperands_begin();
+  if (MI.getOpcode() == TargetOpcode::G_STORE) {
+    auto Bitcast = MIRBuilder.buildBitcast({NewTy}, {ValReg});
+    MIRBuilder.buildStore(Bitcast.getReg(0), MI.getOperand(1).getReg(), MMO);
+  } else {
+    unsigned NewReg = MRI.createGenericVirtualRegister(NewTy);
+    auto NewLoad = MIRBuilder.buildLoad(NewReg, MI.getOperand(1).getReg(), MMO);
+    MIRBuilder.buildBitcast({ValReg}, {NewLoad});
+  }
+  MI.eraseFromParent();
+  return true;
 }
 
 bool AArch64LegalizerInfo::legalizeVaArg(MachineInstr &MI,
@@ -584,11 +673,10 @@ bool AArch64LegalizerInfo::legalizeVaArg(MachineInstr &MI,
       *MF.getMachineMemOperand(MachinePointerInfo(), MachineMemOperand::MOLoad,
                                ValSize, std::max(Align, PtrSize)));
 
-  unsigned SizeReg = MRI.createGenericVirtualRegister(IntPtrTy);
-  MIRBuilder.buildConstant(SizeReg, alignTo(ValSize, PtrSize));
+  auto Size = MIRBuilder.buildConstant(IntPtrTy, alignTo(ValSize, PtrSize));
 
   unsigned NewList = MRI.createGenericVirtualRegister(PtrTy);
-  MIRBuilder.buildGEP(NewList, DstPtr, SizeReg);
+  MIRBuilder.buildGEP(NewList, DstPtr, Size.getReg(0));
 
   MIRBuilder.buildStore(
       NewList, ListPtr,
