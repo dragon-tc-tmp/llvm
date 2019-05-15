@@ -81,6 +81,10 @@ public:
   /// that of the flag: `-vectorize-loops`.
   bool LoopVectorization;
 
+  /// Tuning option to enable/disable slp loop vectorization. Its default value
+  /// is that of the flag: `vectorize-slp`.
+  bool SLPVectorization;
+
   /// Tuning option to cap the number of calls to retrive clobbering accesses in
   /// MemorySSA, in LICM.
   unsigned LicmMssaOptCap;
@@ -432,7 +436,7 @@ public:
   /// {{@ Parse a textual pass pipeline description into a specific PassManager
   ///
   /// Automatic deduction of an appropriate pass manager stack is not supported.
-  /// For example, to insert a loop pass 'lpass' into a FunctinoPassManager,
+  /// For example, to insert a loop pass 'lpass' into a FunctionPassManager,
   /// this is the valid pipeline text:
   ///
   ///   function(lpass)

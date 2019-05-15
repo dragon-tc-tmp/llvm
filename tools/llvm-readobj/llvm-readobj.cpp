@@ -386,10 +386,6 @@ void error(std::error_code EC) {
   reportError(EC.message());
 }
 
-bool relocAddressLess(RelocationRef a, RelocationRef b) {
-  return a.getOffset() < b.getOffset();
-}
-
 } // namespace llvm
 
 static void reportError(StringRef Input, Error Err) {
@@ -444,6 +440,8 @@ static std::error_code createDumper(const ObjectFile *Obj,
     return createMachODumper(Obj, Writer, Result);
   if (Obj->isWasm())
     return createWasmDumper(Obj, Writer, Result);
+  if (Obj->isXCOFF())
+    return createXCOFFDumper(Obj, Writer, Result);
 
   return readobj_error::unsupported_obj_file_format;
 }
