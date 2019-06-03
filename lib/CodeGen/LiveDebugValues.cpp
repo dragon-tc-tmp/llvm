@@ -288,6 +288,7 @@ private:
                            const VarLocMap &VarLocIDs);
   bool transferTerminatorInst(MachineInstr &MI, OpenRangesSet &OpenRanges,
                               VarLocInMBB &OutLocs, const VarLocMap &VarLocIDs);
+
   bool process(MachineInstr &MI, OpenRangesSet &OpenRanges,
                VarLocInMBB &OutLocs, VarLocMap &VarLocIDs,
                TransferMap &Transfers, bool transferChanges);
@@ -456,7 +457,9 @@ void LiveDebugValues::insertTransferDebugPair(
     VarLoc VL(*NewDebugInstr, LS);
     ProcessVarLoc(VL, NewDebugInstr);
     LLVM_DEBUG(dbgs() << "Creating DBG_VALUE inst for register copy: ";
-               NewDebugInstr->print(dbgs(), false, false, false, TII));
+               NewDebugInstr->print(dbgs(), /*IsStandalone*/false,
+                                    /*SkipOpers*/false, /*SkipDebugLoc*/false,
+                                    /*AddNewLine*/true, TII));
     return;
   }
   case TransferKind::TransferSpill: {
@@ -473,7 +476,9 @@ void LiveDebugValues::insertTransferDebugPair(
               SpillLocation.SpillOffset, LS);
     ProcessVarLoc(VL, NewDebugInstr);
     LLVM_DEBUG(dbgs() << "Creating DBG_VALUE inst for spill: ";
-               NewDebugInstr->print(dbgs(), false, false, false, TII));
+               NewDebugInstr->print(dbgs(), /*IsStandalone*/false,
+                                    /*SkipOpers*/false, /*SkipDebugLoc*/false,
+                                    /*AddNewLine*/true, TII));
     return;
   }
   case TransferKind::TransferRestore: {
@@ -487,7 +492,9 @@ void LiveDebugValues::insertTransferDebugPair(
     VarLoc VL(*NewDebugInstr, LS);
     ProcessVarLoc(VL, NewDebugInstr);
     LLVM_DEBUG(dbgs() << "Creating DBG_VALUE inst for register restore: ";
-               NewDebugInstr->print(dbgs(), false, false, false, TII));
+               NewDebugInstr->print(dbgs(), /*IsStandalone*/false,
+                                    /*SkipOpers*/false, /*SkipDebugLoc*/false,
+                                    /*AddNewLine*/true, TII));
     return;
   }
   }

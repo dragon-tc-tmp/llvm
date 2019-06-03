@@ -293,9 +293,10 @@ Demangler::demangleSpecialTableSymbolNode(StringView &MangledName,
 }
 
 LocalStaticGuardVariableNode *
-Demangler::demangleLocalStaticGuard(StringView &MangledName) {
+Demangler::demangleLocalStaticGuard(StringView &MangledName, bool IsThread) {
   LocalStaticGuardIdentifierNode *LSGI =
       Arena.alloc<LocalStaticGuardIdentifierNode>();
+  LSGI->IsThread = IsThread;
   QualifiedNameNode *QN = demangleNameScopeChain(MangledName, LSGI);
   LocalStaticGuardVariableNode *LSGVN =
       Arena.alloc<LocalStaticGuardVariableNode>();
@@ -443,7 +444,9 @@ SymbolNode *Demangler::demangleSpecialIntrinsic(StringView &MangledName) {
   case SpecialIntrinsicKind::VcallThunk:
     return demangleVcallThunkNode(MangledName);
   case SpecialIntrinsicKind::LocalStaticGuard:
-    return demangleLocalStaticGuard(MangledName);
+    return demangleLocalStaticGuard(MangledName, /*IsThread=*/false);
+  case SpecialIntrinsicKind::LocalStaticThreadGuard:
+    return demangleLocalStaticGuard(MangledName, /*IsThread=*/true);
   case SpecialIntrinsicKind::RttiTypeDescriptor: {
     TypeNode *T = demangleType(MangledName, QualifierMangleMode::Result);
     if (Error)
@@ -674,7 +677,6 @@ Demangler::demangleFunctionIdentifierCode(StringView &MangledName,
       return Arena.alloc<IntrinsicFunctionIdentifierNode>(
           translateIntrinsicFunctionCode(CH, Group));
     }
-    break;
   case FunctionIdentifierCodeGroup::Under:
     return Arena.alloc<IntrinsicFunctionIdentifierNode>(
         translateIntrinsicFunctionCode(MangledName.popFront(), Group));
@@ -745,18 +747,44 @@ SymbolNode *Demangler::demangleDeclarator(StringView &MangledName) {
   return Symbol;
 }
 
+SymbolNode *Demangler::demangleMD5Name(StringView &MangledName) {
+  assert(MangledName.startsWith("??@"));
+  // This is an MD5 mangled name.  We can't demangle it, just return the
+  // mangled name.
+  // An MD5 mangled name is ??@ followed by 32 characters and a terminating @.
+  size_t MD5Last = MangledName.find('@', strlen("??@"));
+  if (MD5Last == StringView::npos) {
+    Error = true;
+    return nullptr;
+  }
+  const char *Start = MangledName.begin();
+  MangledName = MangledName.dropFront(MD5Last + 1);
+
+  // There are two additional special cases for MD5 names:
+  // 1. For complete object locators where the object name is long enough
+  //    for the object to have an MD5 name, the complete object locator is
+  //    called ??@...@??_R4@ (with a trailing "??_R4@" instead of the usual
+  //    leading "??_R4". This is handled here.
+  // 2. For catchable types, in versions of MSVC before 2015 (<1900) or after
+  //    2017.2 (>= 1914), the catchable type mangling is _CT??@...@??@...@8
+  //    instead of_CT??@...@8 with just one MD5 name. Since we don't yet
+  //    demangle catchable types anywhere, this isn't handled for MD5 names
+  //    either.
+  MangledName.consumeFront("??_R4@");
+
+  StringView MD5(Start, MangledName.begin());
+  SymbolNode *S = Arena.alloc<SymbolNode>(NodeKind::Md5Symbol);
+  S->Name = synthesizeQualifiedName(Arena, MD5);
+
+  return S;
+}
+
 // Parser entry point.
 SymbolNode *Demangler::parse(StringView &MangledName) {
-  // We can't demangle MD5 names, just output them as-is.
-  // Also, MSVC-style mangled symbols must start with '?'.
-  if (MangledName.startsWith("??@")) {
-    // This is an MD5 mangled name.  We can't demangle it, just return the
-    // mangled name.
-    SymbolNode *S = Arena.alloc<SymbolNode>(NodeKind::Md5Symbol);
-    S->Name = synthesizeQualifiedName(Arena, MangledName);
-    return S;
-  }
+  if (MangledName.startsWith("??@"))
+    return demangleMD5Name(MangledName);
 
+  // MSVC-style mangled symbols must start with '?'.
   if (!MangledName.startsWith('?')) {
     Error = true;
     return nullptr;
@@ -1058,10 +1086,8 @@ static void writeHexDigit(char *Buffer, uint8_t Digit) {
 }
 
 static void outputHex(OutputStream &OS, unsigned C) {
-  if (C == 0) {
-    OS << "\\x00";
-    return;
-  }
+  assert (C != 0);
+
   // It's easier to do the math if we can work from right to left, but we need
   // to print the numbers from left to right.  So render this into a temporary
   // buffer first, then output the temporary buffer.  Each byte is of the form
@@ -1561,11 +1587,11 @@ FuncClass Demangler::demangleFunctionClass(StringView &MangledName) {
   case 'C':
     return FuncClass(FC_Private | FC_Static);
   case 'D':
-    return FuncClass(FC_Private | FC_Static);
+    return FuncClass(FC_Private | FC_Static | FC_Far);
   case 'E':
     return FuncClass(FC_Private | FC_Virtual);
   case 'F':
-    return FuncClass(FC_Private | FC_Virtual);
+    return FuncClass(FC_Private | FC_Virtual | FC_Far);
   case 'G':
     return FuncClass(FC_Private | FC_StaticThisAdjust);
   case 'H':
@@ -1916,6 +1942,8 @@ PrimitiveTypeNode *Demangler::demanglePrimitiveType(StringView &MangledName) {
       return Arena.alloc<PrimitiveTypeNode>(PrimitiveKind::Uint64);
     case 'W':
       return Arena.alloc<PrimitiveTypeNode>(PrimitiveKind::Wchar);
+    case 'Q':
+      return Arena.alloc<PrimitiveTypeNode>(PrimitiveKind::Char8);
     case 'S':
       return Arena.alloc<PrimitiveTypeNode>(PrimitiveKind::Char16);
     case 'U':
